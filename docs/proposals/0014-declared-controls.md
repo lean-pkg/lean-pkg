@@ -75,8 +75,12 @@ negations lists them all in one `refutes` control.
 
 #### Messages
 
-The job reads Lean's messages from `lean --json FILE`, one JSON object per message with its severity and,
-when Lean gives one, its error name (`lean.unknownIdentifier`). A message's **text** is its whole text, over
+The job reads Lean's messages from `lean --json FILE`, one JSON object per message with its severity and
+its `kind`. For a named error the `kind` is the error name with a `._namedError` suffix
+(`lean.unknownIdentifier._namedError`, measured under Lean 4.35); other errors have kinds such as
+`Tactic.unsolvedGoals` or `[anonymous]` (a parse error and a `decide` refutation both have `[anonymous]`).
+The `fileName` of each object is the path as passed, so every path prefix is stripped from anything
+recorded from these objects, as from `first_error`. A message's **text** is its whole text, over
 all its lines. Where JSON output is unavailable, the job splits the plain output on message headers, the
 regular expression `^<file>:\d+:\d+: (error|warning|info)(\([^)]*\))?:` (a tagged header such as
 `error(lean.invalidField):` included), and a message ends at the next header of any severity, `info:`
@@ -87,8 +91,11 @@ on the following lines of the same message; `expect` is matched against the whol
 
 #### Setup errors
 
-A fixed list lean-pkg ships, of case-insensitive regular expressions matched against the text of **every**
-error message (not only the first), and of error names:
+A fixed list lean-pkg ships, of case-insensitive regular expressions and of error names. The regular
+expressions are matched against the text of **every** error message, whatever its `kind`: a `kind` adds a
+name to match, it never replaces the text match (a parse error's `kind` is `[anonymous]`, like a `decide`
+refutation's, so only its text tells them apart). An error name matches a `kind` equal to the name or to
+the name followed by `._namedError`:
 
 | Pattern or error name | What it means |
 |---|---|
