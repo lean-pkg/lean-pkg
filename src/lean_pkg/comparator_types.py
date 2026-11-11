@@ -63,7 +63,10 @@ UNPARSEABLE = ("✝", "⋯")             # inaccessible-name dagger, elided-proo
 DECL_RE = re.compile(r"^[^\s«».]+(\.[^\s«».]+)*$")
 LAKEFILES = ("lakefile.lean", "lakefile.toml")
 
-# The Lean the driver writes for each declaration; it fills in __IMPORTS__ and __NAME__.
+# The Lean the driver writes for each declaration; it fills in __IMPORTS__ and __NAME__. pp.deepTerms is false
+# by default (Lean 4.35: threshold 50), so a statement deeper than 50 printed with an elided `⋯`, which the
+# round-trip check then refused (a field report: radius_mean_anchor_paper); deepTerms true prints it whole, and
+# a large pp.maxSteps keeps a long statement from being cut by the step budget either.
 LEAN_SNIPPET = """\
 __IMPORTS__
 import Lean
@@ -72,6 +75,8 @@ set_option pp.proofs true
 set_option pp.analyze true
 set_option pp.numericTypes true
 set_option pp.funBinderTypes true
+set_option pp.deepTerms true
+set_option pp.maxSteps 10000000
 open Lean Elab Command in
 #eval show CommandElabM Unit from do
   let env ← getEnv

@@ -64,6 +64,19 @@ changes:
       receipt slurm template) so that the job runs them; an older verify script ignores the file.
     breaking: false
     changelog: Added
+  - pr: 454
+    id: type-driver-deep-terms
+    kind: behavior
+    area: comparator config
+    summary: >-
+      The type driver behind comparator config --challenge-from-type (and --emit-script) sets pp.deepTerms true
+      and pp.maxSteps 10000000, so a statement nested deeper than Lean's default threshold (50) is printed whole
+      instead of with an elided ⋯ that the round-trip check refused. Shallow statements print as before.
+    action: >-
+      Nothing required. A claim that was marked needs_restatement or failed the round trip only because of an
+      elided ⋯ can be regenerated with --challenge-from-type.
+    breaking: false
+    changelog: Fixed
 # Docs: proposal 0014 (declared controls in the sealed verify log) added, accepted; nothing implemented
 # (#451).
 no_author_change: [451]
