@@ -102,6 +102,9 @@ ROW_REQUIRED = ("paper", "class")
 ROW_OPTIONAL = ("claims", "inputs", "note", "conclusion", "conclusion_scope", "witness")
 # proposal 0010: how a paper row's Lean conclusion relates to the paper's; an absent key means full
 CONCLUSIONS = ("full", "weaker", "special-case")
+# R11: a compared theorem that no row names is accounted for when it is the decl of a claim with one of these
+# statuses (a supporting lemma the package declares as such); experimental and superseded claims are not
+ACCOUNTED_STATUSES = ("internal", "reusable")
 SCOPED_CONCLUSIONS = ("weaker", "special-case")
 # proposal 0011: a row's `witness` names the claims.yaml witness of its headline claim; the ledger's states of it
 WITNESS_STATES = ("checked", "unchecked", "mismatch")
@@ -867,15 +870,21 @@ def check_against(doc: dict, claims: dict[str, dict], claims_rel: str, repo: pat
 def theorem_mapping_problems(doc: dict, claims: dict[str, dict], configs: list[dict], smoke, read_file,
                              source: str) -> list[str]:
     """R10/R11: every theorem of `configs` ({path, theorem_names} each) is the declaration of a claim some row
-    names, unless its configuration is a declared smoke check (its path in `smoke`), whose theorems must then
-    name no claim a row names. `read_file(rel)` reads the claims' Lean files (a decl counts only when its file
-    declares it: comparator_config.qualified_decls); `source` says where the configurations came from."""
+    names, or of a claim claims.yaml marks internal or reusable (ACCOUNTED_STATUSES: a supporting lemma the
+    package declares as such needs no row), unless its configuration is a declared smoke check (its path in
+    `smoke`), whose theorems must then name no claim a row names. `read_file(rel)` reads the claims' Lean files
+    (a decl counts only when its file declares it: comparator_config.qualified_decls); `source` says where the
+    configurations came from."""
     from . import comparator_config as cc
     errors: list[str] = []
     named = [(i, cid) for i, r in enumerate(doc["rows"]) for cid in r.get("claims") or [] if cid in claims]
     row_claims = [claims[cid] for _i, cid in named]
-    qualified = cc.qualified_decls(read_file, row_claims)
-    decls = [(str(c.get("decl") or ""), str(c.get("decl") or "") in qualified) for c in row_claims]
+    row_ids = {cid for _i, cid in named}
+    others = [(cid, c) for cid, c in claims.items() if cid not in row_ids]
+    accounted = row_claims + [c for _cid, c in others if c.get("status") in ACCOUNTED_STATUSES]
+    unaccounted = [(cid, c) for cid, c in others if c.get("status") not in ACCOUNTED_STATUSES]
+    qualified = cc.qualified_decls(read_file, row_claims + [c for _cid, c in others])
+    decls = [(str(c.get("decl") or ""), str(c.get("decl") or "") in qualified) for c in accounted]
     mapped = cc.mapped_names(list(claims.values()))      # a judged_as name judges its own claim only (#CM)
     for c in configs:
         where = c.get("path") or "?"
@@ -890,11 +899,20 @@ def theorem_mapping_problems(doc: dict, claims: dict[str, dict], configs: list[d
                                   f"configuration of its own, or drop the smoke mark")
             continue
         for t in c.get("theorem_names") or []:
-            if isinstance(t, str) and not any(cc.claim_covered({t}, rc, qualified, mapped) for rc in row_claims):
-                near = cc.name_hints([t], decls)            # #6: a root-namespace near miss, named, never credited
-                errors.append(f"comparator theorem {t!r} ({where}, {source}) is the declaration "
-                              f"of no claim a row names: map it to its paper result (a row's claims), or drop it "
-                              f"from the configuration" + (f"; hint: {near[0]['hint']}" if near else ""))
+            if not isinstance(t, str) or any(cc.claim_covered({t}, ac, qualified, mapped) for ac in accounted):
+                continue
+            other = [(cid, oc) for cid, oc in unaccounted if cc.claim_covered({t}, oc, qualified, mapped)]
+            if other:
+                cid, oc = other[0]
+                errors.append(f"comparator theorem {t!r} ({where}, {source}) is the declaration of claim {cid!r}, "
+                              f"whose status is {oc.get('status')!r}: name it in a row, mark it internal or "
+                              f"reusable (lean-pkg claims mark), or drop the theorem from the configuration")
+                continue
+            near = cc.name_hints([t], decls)                # #6: a root-namespace near miss, named, never credited
+            errors.append(f"comparator theorem {t!r} ({where}, {source}) is the declaration "
+                          f"of no claim a row names and of no internal or reusable claim: map it to its paper "
+                          f"result (a row's claims), give it a claim marked internal or reusable, or drop it "
+                          f"from the configuration" + (f"; hint: {near[0]['hint']}" if near else ""))
     return errors
 
 
@@ -902,7 +920,8 @@ def scope_problems(pkg: dict, doc: dict, claims: dict[str, dict], repo: pathlib.
     """The lab's lean-scope-page rules that apply to a rendered page (docs/page.md#from-lean-scope-page):
     R8/R9, every claim a row names has its `file` committed at HEAD (the page links the declaration
     there); R10/R11, every theorem the recorded comparator receipt compares is the declaration of a claim
-    some row names (the page says how many theorems were compared, so each must be accounted for), unless
+    some row names or of an internal or reusable claim (the page says how many theorems were compared, so
+    each must be accounted for), unless
     its configuration is a declared smoke check (lean-pkg-signoff.json `smoke`, at the receipt's commit or
     HEAD), which the page shows as such and whose theorems must then name no claim a row names;
     R12, every comparator configuration with definition holes carries a sign-off reviewer (the page names
@@ -1000,8 +1019,8 @@ def offline_check(text: str, where: str, *, claims_text: str | None = None, clai
     text: the coverage/1 schema and its length limits, the manuscript version, lean_pkg_version; with the
     claims file's text, its claims/1 schema, each row's claim ids (present, not superseded) and a warning for
     each reusable claim no row names; with comparator configurations ({path: bytes}), R10/R11 (each theorem
-    the declaration of a claim a row names; `sidecar` marks smoke configurations; `read_file(rel)` reads the
-    claims' Lean files, skipped when one is unreadable). draft (verify's preflight): placeholder text and an
+    the declaration of a claim a row names or of an internal or reusable claim; `sidecar` marks smoke
+    configurations; `read_file(rel)` reads the claims' Lean files, skipped when one is unreadable). draft (verify's preflight): placeholder text and an
     unposted manuscript are warnings, not problems (`coverage check` and `page` still refuse them).
     {doc, errors, warnings, checks[{check, status pass|fail|warn|skipped, detail}], skipped[]}."""
     from . import claims as claims_mod
@@ -1132,18 +1151,19 @@ def _offline_comparator(_add, doc, claims, configs, sidecar, read_file, invalid:
         _add(check, "skipped", invalid or ("no claims file given (--claims PATH)" if no_claims
                                              else "the claims file is not a valid claims/1 file"))
         return
-    files = sorted({str(claims[cid].get("file") or "") for r in doc["rows"] for cid in r.get("claims") or []
-                    if cid in claims})
+    named = {cid for r in doc["rows"] for cid in r.get("claims") or [] if cid in claims}
+    files = sorted({str(c.get("file") or "") for cid, c in claims.items()
+                    if cid in named or c.get("status") in ACCOUNTED_STATUSES})
     unreadable = [f for f in files if not f or read_file is None or read_file(f) is None]
     if unreadable:
-        _add(check, "skipped", "the Lean file(s) of the named claims are not readable here ("
+        _add(check, "skipped", "the Lean file(s) of the named, internal or reusable claims are not readable here ("
                + ", ".join(unreadable[:5]) + "): a decl counts only when its file declares it")
         return
     p = theorem_mapping_problems(doc, claims, parsed, holes.smoke_paths(sidecar), read_file,
                                  "comparator configuration")
     n = sum(len(c["theorem_names"]) for c in parsed)
     _add(check, "fail" if p else "pass", f"each of {n} theorem(s) in {len(parsed)} configuration(s) is the "
-           f"declaration of a claim a row names (R11)", p)
+           f"declaration of a claim a row names or of an internal or reusable claim (R11)", p)
 
 
 def _offline_reader(root: pathlib.Path):
@@ -1396,7 +1416,8 @@ def add_parsers(sub, add_json) -> None:
                    help="offline only (no NAME): the claims file the rows' claim ids are checked against")
     c.add_argument("--comparator", action="append", default=None, metavar="PATH",
                    help="offline only (no NAME): a comparator configuration whose theorems must each be the "
-                        "declaration of a claim a row names (repeat for each configuration)")
+                        "declaration of a claim a row names or of an internal or reusable claim (repeat for "
+                        "each configuration)")
     c.add_argument("--allow-private-manuscript", action="store_true",
                    help="accept manuscript.version 'unposted' (a private draft); the output says so")
     add_json(c)

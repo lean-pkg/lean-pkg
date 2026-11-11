@@ -669,7 +669,7 @@ receipt check: PASS pi-lambda at ff6e3c27425b (tier comparator; 14 passed, 0 ski
   PASS receipts: 1 lower-tier and 1 comparator receipt(s) bind ff6e3c27425b
   PASS binding: docs-only descendant of ff6e3c27425b (1 non-build file(s): README.md; opted in) (accepted with --docs-descendants)
   ...
-  PASS coverage: coverage.yaml: 2 row(s); every compared theorem is the declaration of a claim a row names (R11)
+  PASS coverage: coverage.yaml: 2 row(s); every compared theorem is the declaration of a claim a row names or of an internal or reusable claim (R11)
   PASS page: trust boundary: sorry count, axioms and comparator counts as the receipts record them
 ```
 

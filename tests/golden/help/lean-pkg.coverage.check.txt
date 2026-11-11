@@ -14,8 +14,8 @@ options:
   --claims PATH         offline only (no NAME): the claims file the rows' claim ids are checked
                         against
   --comparator PATH     offline only (no NAME): a comparator configuration whose theorems must
-                        each be the declaration of a claim a row names (repeat for each
-                        configuration)
+                        each be the declaration of a claim a row names or of an internal or
+                        reusable claim (repeat for each configuration)
   --allow-private-manuscript
                         accept manuscript.version 'unposted' (a private draft); the output says so
   --json                machine-readable JSON on stdout

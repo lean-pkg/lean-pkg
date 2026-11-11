@@ -721,9 +721,10 @@ def test_a_library_coverage_cannot_carry_a_manuscript_claim(lp, env, capsys, tmp
 
 
 def test_every_compared_theorem_is_a_main_result_of_a_library(lp, env, capsys):
-    """The page says how many theorems were compared, so each must be a row's claim (R11), library or paper."""
+    """The page says how many theorems were compared, so each must be a row's claim, or an internal or reusable
+    one (R11), library or paper: here the compared claim no row names is experimental."""
     from .conftest import CLAIMS_YAML
-    aux = CLAIMS_YAML + """\
+    aux = CLAIMS_YAML.replace("status: reusable", "status: experimental") + """\
 - id: beta/aux
   decl: Demo.aux
   kind: theorem
@@ -738,7 +739,7 @@ def test_every_compared_theorem_is_a_main_result_of_a_library(lp, env, capsys):
     doc["rows"] = [{"title": "Auxiliary", "claims": ["beta/aux"]}]
     prepare(env, doc, extra={"claims.yaml": aux})
     rc, data = cov_check(lp, env, capsys)
-    assert rc == 1 and any("comparator theorem 'BetaAudit.Demo.foo_le_bar'" in e and "no claim a row names" in e
+    assert rc == 1 and any("comparator theorem 'BetaAudit.Demo.foo_le_bar'" in e and "'experimental'" in e
                            for e in data["errors"])
 
 

@@ -155,8 +155,9 @@ def test_receipt_check_coverage_item_warns_and_still_passes(lp, tmp_path, capsys
     rc, item, data = _coverage_item(lp, capsys, repo, x)
     assert rc == 0 and item["verdict"] == "pass", item
     assert item["detail"].startswith("coverage.yaml: 2 row(s); every compared theorem is the declaration of a claim "
-                                     "a row names (R11); warning: rows[0] (Theorem 1, same-assumptions): claim "
-                                     "demo/main (main) takes the assumption Hyp.A,"), item
+                                     "a row names or of an internal or reusable claim (R11); warning: rows[0] "
+                                     "(Theorem 1, same-assumptions): claim demo/main (main) takes the assumption "
+                                     "Hyp.A,"), item
     assert item["detail"].endswith("(proposal 0003, open question 7) (and 1 more unlisted assumption(s))")
     assert "hypotheses" not in data                 # the claims use no key: no hypotheses check
 
@@ -166,7 +167,7 @@ def test_receipt_check_coverage_item_is_unchanged_without_the_section(lp, tmp_pa
     rc, item, _data = _coverage_item(lp, capsys, repo, x)
     assert rc == 0 and item["verdict"] == "pass"
     assert item["detail"] == ("coverage.yaml: 2 row(s); every compared theorem is the declaration of a claim a row "
-                              "names (R11)")
+                              "names or of an internal or reusable claim (R11)")
 
 
 def test_receipt_check_coverage_item_without_a_lower_receipt_reads_no_log(tmp_path, monkeypatch):

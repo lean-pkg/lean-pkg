@@ -450,7 +450,7 @@ lean-pkg coverage check:
       coverage.yaml: coverage: OK; library; 1 main result(s); offline, 4 check(s) skipped
         pass: schema: coverage/1 schema and length limits
         ...
-        pass: comparator theorems: each of 1 theorem(s) in 1 configuration(s) is the declaration of a claim a row names (R11)
+        pass: comparator theorems: each of 1 theorem(s) in 1 configuration(s) is the declaration of a claim a row names or of an internal or reusable claim (R11)
         skipped: compute receipts: each compute job is a receipt committed under .lean-receipts/: needs the receipts at HEAD
         ...
       coverage.yaml: coverage: OK; library; 1 main result(s); offline, 4 check(s) skipped

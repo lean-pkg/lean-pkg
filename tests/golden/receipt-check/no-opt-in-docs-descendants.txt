@@ -12,7 +12,7 @@ receipt check: PASS beta at <X12> (tier comparator; 13 passed, 1 skipped)
   PASS comparator .lean-receipts/<X12>-comparator.json: 1 configuration(s) tracked at <X12> re-derived from bytes (sha256, theorem names, sign-off), every log's sha256 and PASS line, same commit as the lower tier
   SKIP comparator .lean-receipts/<X12>-comparator.json: olean manifest: the receipt records no olean_manifest
   PASS claimed theorems: every reusable theorem/lemma claim of claims.yaml at <X12> is named by a comparator configuration (1 covered)
-  PASS coverage: coverage.yaml: 2 row(s); every compared theorem is the declaration of a claim a row names (R11)
+  PASS coverage: coverage.yaml: 2 row(s); every compared theorem is the declaration of a claim a row names or of an internal or reusable claim (R11)
   PASS page: commit: the page's Reproduce section checks out <X12>
   PASS page: pins: toolchain leanprover/lean4:v4.32.0 and Mathlib <SHA> as committed at <X12>
   PASS page: evidence: 2 Evidence row(s): every path, commit and SHA-256 as committed

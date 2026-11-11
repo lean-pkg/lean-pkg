@@ -67,7 +67,8 @@ Checks, each with a verdict pass | fail | skip (skip: the check does not apply, 
   (hypothesis-not-in-type, hypothesis-inadmissible, discharge-type-mismatch, witness-type-mismatch), an
   unreadable sealed log or a log without a complete section. `--json` gains `hypotheses` under the same condition.
 - coverage: coverage.yaml at REF, when tracked, passes `coverage check` (schema, claim ids, backed compute
-  jobs, R8 to R12: every theorem the comparator receipt compares is the declaration of a claim a row names).
+  jobs, R8 to R12: every theorem the comparator receipt compares is the declaration of a claim a row names
+  or of an internal or reusable claim).
   Its first warning, and the first unlisted assumption (proposal 0003, open question 7, from the hyp-decl lines
   of the sealed log of the lower-tier receipt that binds X: coverage.unlisted_assumption_warnings), are appended
   to the detail; a warning never fails it.
@@ -680,7 +681,8 @@ def coverage_check(c: Checks, repo: pathlib.Path, pkg: dict, found: dict | None 
     unlisted = cov.unlisted_assumption_warnings(doc, claims, repo, lower[0]["data"], lower[0]["path"]) if lower \
         else []
     c.add(cid, PASS, f"{cov.DEFAULT_COVERAGE_FILE}: {len(doc['rows'])} row(s); every compared theorem is the "
-          f"declaration of a claim a row names (R11)" + (f"; warning: {warnings[0]}" if warnings else "")
+          f"declaration of a claim a row names or of an internal or reusable claim (R11)"
+          + (f"; warning: {warnings[0]}" if warnings else "")
           + (f"; warning: {unlisted[0]}" + (f" (and {len(unlisted) - 1} more unlisted assumption(s))"
                                              if len(unlisted) > 1 else "") if unlisted else ""))
 
