@@ -57,6 +57,7 @@ import shutil
 import subprocess
 
 from . import claim_axioms
+from . import controls
 from . import hypotheses
 from . import core
 from . import page as page_mod
@@ -245,7 +246,8 @@ VERIFY = """\
 #            build: Lake must compile the package's modules, not restore them), sorry-count:, axioms:, and
 #            the claim-axioms lines of every claim in claims.yaml, read from the built environment, and
 #            the hyp-probe/1 section after them (the Challenge, when built for it, goes to a side log
-#            beside LOG, hyp-challenge-build.log, never into LOG)
+#            beside LOG, hyp-challenge-build.log, never into LOG), and, when lean-pkg-controls.yaml is
+#            tracked, the controls/1 section (each declared control run alone; proposal 0014)
 set -euo pipefail
 export LC_ALL=C LANG=C
 unset LANGUAGE
@@ -253,7 +255,7 @@ LOG=${{1:?usage: bash verify.sh LOG}}
 # The modules the receipt certifies: the proof and the axioms report (the Challenge's sorry is by design and
 # is judged by comparator-receipt, not here).
 MODULES="{module}.Solution {module}.Axioms"
-{claim_axioms_sh}{hypotheses_sh}echo "pre-manifest-sha256 $(sha256sum lake-manifest.json | cut -d' ' -f1)"
+{claim_axioms_sh}{hypotheses_sh}{controls_sh}echo "pre-manifest-sha256 $(sha256sum lake-manifest.json | cut -d' ' -f1)"
 rm -rf .lake/build
 {{
   echo "commit: $(git rev-parse HEAD)"
@@ -266,6 +268,7 @@ echo "lean-pkg-build: end" >>"$LOG"
 ca_dir=$(mktemp -d)
 claim_axioms_run "$LOG" "$ca_dir" "$(lake env printenv LEAN_PATH)"
 hypotheses_run "$LOG" "$ca_dir/hyp-probe" "$(lake env printenv LEAN_PATH)" "$(dirname "$LOG")/hyp-challenge-build.log"
+controls_run "$LOG" "$ca_dir/controls" "$(lake env printenv LEAN_PATH)"
 rm -rf "$ca_dir"
 sorry=$(grep -c -E "declaration uses ['\\`]sorry['\\`]" "$LOG" || true)
 axioms=$(tr '\\n' ' ' <"$LOG" | grep -o 'depends on axioms: \\[[^]]*\\]' | sed -e 's/^[^[]*\\[//' -e 's/\\]$//' \\
@@ -402,7 +405,7 @@ def _files(name: str, module: str, author: str, mathlib: bool, license_spdx: str
                                    paper=README_PAPER.format(name=name) if kind == "paper" else ""),
         "verify.sh": VERIFY.format(name=name, module=module, mathlib_line="" if mathlib else NO_MATHLIB_LINE,
                                    claim_axioms_sh=claim_axioms.job_sh(),
-                                   hypotheses_sh=hypotheses.job_sh()),
+                                   hypotheses_sh=hypotheses.job_sh(), controls_sh=controls.job_sh()),
     }
 
 

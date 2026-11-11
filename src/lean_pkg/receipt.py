@@ -104,6 +104,7 @@ import subprocess
 import sys
 
 from . import claim_axioms as ca
+from . import controls
 from . import gate as gate_mod
 from . import core
 from . import container as ctr
@@ -387,7 +388,7 @@ if [ "$SRC_MODE" = clone ]; then
     exit 1
   fi
 fi
-""" + lh.SHADOW_CHECK_SH + ca.job_sh() + hyp.job_sh() + r"""# The dependency restore may change .lake/packages and nothing else: a listing and the content hashes of the
+""" + lh.SHADOW_CHECK_SH + ca.job_sh() + hyp.job_sh() + controls.job_sh() + r"""# The dependency restore may change .lake/packages and nothing else: a listing and the content hashes of the
 # rest of the tree (.lake itself aside, which it may create) are compared before and after. (No directory
 # sizes or times: creating .lake changes those of the package directory on some filesystems.)
 deps_snapshot() {
@@ -467,6 +468,8 @@ claim_axioms_run "$LOG" "$WORK/claim-axioms" "$lean_path"
 # The hyp-probe/1 section (proposal 0003): every claim's Prop hypotheses, and with conditional claims the
 # Challenge facts. The Challenge is built into the side log $WORK/hyp-challenge-build.log, never into $LOG.
 hypotheses_run "$LOG" "$WORK/hyp-probe" "$lean_path" "$WORK/hyp-challenge-build.log"
+# The controls/1 section (proposal 0014): each control of lean-pkg-controls.yaml, when it is tracked, run alone.
+controls_run "$LOG" "$WORK/controls" "$lean_path"
 echo "fs-file-nr-after: $(cat /proc/sys/fs/file-nr 2>/dev/null || echo unavailable)" >>"$LOG"
 
 # The artifact seal (ARTIFACTS_DIR above). artifacts_list DIR: the manifest lines of the regular files under DIR,

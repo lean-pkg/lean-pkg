@@ -1,0 +1,29 @@
+schema: controls/1
+controls:
+  - id: neg-wrong-bound
+    kind: must-fail
+    file: controls/WrongBound.lean
+    expect: "could not prove"
+    targets: [Cx.double]
+    note: the wrong variant double n < n
+  - id: neg-typo
+    kind: must-fail
+    file: controls/Typo.lean
+    note: fails on a setup error, so the control fails
+  - id: neg-parse
+    kind: must-fail
+    file: controls/Parse.lean
+  - id: neg-bare
+    kind: must-fail
+    file: controls/Bare.lean
+    targets: [Cx.double]
+  - id: ref-double
+    kind: refutes
+    file: refutations/DoubleNotLt.lean
+    theorem: [Refutations.double_not_lt, Refutations.double_lt_false]
+    targets: [Cx.double]
+  - id: audit-main
+    kind: compiles
+    file: Audit/Main.lean
+    targets: [Cx.le_double]
+    timeout: 120

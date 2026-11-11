@@ -305,16 +305,38 @@ def preflight(steps: Steps, name: str, pkg: dict, repo: pathlib.Path, c12: str) 
     --dry-run too; ok true when nothing refuses. Files only in the working tree are not read: HEAD is judged."""
     from . import coverage as cov
     res = cov.preflight_at_head(name, pkg, repo)
+    res["controls"] = controls_preflight(repo, c12)        # proposal 0014: the declaration the job will read
+    if res["controls"]["errors"]:
+        res["ok"] = False
     steps.say(f"verify: 0/3 preflight: claims and coverage files committed at {c12}")
-    for line in res["lines"]:
+    for line in res["lines"] + res["controls"]["lines"]:
         steps.say(f"  {line}")
     hits, warnings = module_import_warnings(name, repo, c12)
     for w in warnings:
         print(f"lean-pkg: warning: {w}", file=sys.stderr)
     steps.done.append({"step": "0/3 preflight", "rc": 0 if res["ok"] else 1,
                        "output": {"ok": res["ok"], "claims": res["claims"], "coverage": res["coverage"],
+                                  "controls": {k: v for k, v in res["controls"].items() if k != "lines"},
                                   "module_imports": hits, "warnings": warnings}})
     return res
+
+
+def controls_preflight(repo: pathlib.Path, c12: str) -> dict:
+    """Proposal 0014: when lean-pkg-controls.yaml is committed at HEAD, its schema and line shape (controls.check),
+    since the job reads it with awk and a file it cannot read would run the wrong controls. {file, present,
+    controls, errors[], lines[]}; no file: present false, nothing refused."""
+    from . import controls
+    raw = core.git_show_bytes(repo, controls.FILE)
+    out: dict = {"file": controls.FILE, "present": raw is not None, "controls": None, "errors": [], "lines": []}
+    if raw is None:
+        return out
+    ctls, errs = controls.check(raw.decode("utf-8", errors="replace"))
+    out.update(controls=len(ctls), errors=errs)
+    if errs:
+        out["lines"] = [f"FAIL {controls.FILE} at {c12}: {len(errs)} problem(s)"] + [f"  ✗ {e}" for e in errs]
+    else:
+        out["lines"] = [f"ok {controls.FILE} at {c12}: {len(ctls)} control(s), controls/1"]
+    return out
 
 
 MODULE_HITS_SHOWN = 10
@@ -358,10 +380,10 @@ def cmd_verify(args) -> int:
                     f"{p['pkg']['gate'].get('comparator')}; nothing to do")
         payload.update(ok=True, already=p["already"], status=p["status"])
         return _finish(args, payload, 0)
-    # 0. the preflight: the schema refusals of claims.yaml and coverage.yaml at HEAD, before any receipt work
+    # 0. the preflight: the schema refusals of claims.yaml, coverage.yaml and lean-pkg-controls.yaml at HEAD
     pre = preflight(steps, name, p["pkg"], repo, c12)
     if not pre["ok"]:
-        bad = pre["claims"] if pre["claims"]["errors"] else pre["coverage"]
+        bad = next(r for r in (pre["claims"], pre["coverage"], pre["controls"]) if r["errors"])
         return _finish(args, payload, 1, f"the preflight refused {bad['file']} at {c12}: "
                                          + "; ".join(bad["errors"][:10])
                                          + "; fix it in a new commit, then run verify again; nothing run, "
