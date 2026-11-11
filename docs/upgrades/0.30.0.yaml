@@ -77,6 +77,22 @@ changes:
       elided ⋯ can be regenerated with --challenge-from-type.
     breaking: false
     changelog: Fixed
+  - pr: 455
+    id: coverage-r11-internal-claims
+    kind: behavior
+    area: coverage
+    summary: >-
+      coverage check's rule R11 (every compared theorem accounted for) also accepts a theorem that is the
+      declaration of a claim claims.yaml marks internal or reusable, with no row naming it. A theorem of no
+      claim still fails; one of an experimental or superseded claim fails with the claim and its status named.
+      The offline form (--comparator) reads those claims' Lean files and skips the check when one is not
+      readable. receipt check's coverage detail and the pass line of the offline check change wording.
+    action: >-
+      Nothing required. A package that added rows only to account for compared helper lemmas can mark those
+      claims internal (lean-pkg claims mark NAME --from-comparator CONFIG --status internal) instead. A script
+      matching the old R11 pass or error text should match the new wording.
+    breaking: false
+    changelog: Changed
 # Docs: proposal 0014 (declared controls in the sealed verify log) added, accepted; nothing implemented
 # (#451).
 no_author_change: [451]

@@ -44,6 +44,18 @@ full policy, and the criteria for 1.0.0, are in RELEASING.md, "When to tag".
   `lean-pkg verify --memory-max BYTES` passes the cap to its `receipt
   systemd` step.
 
+### Changed
+
+- `coverage check` (rule R11) accounts for a compared theorem that no row
+  names when it is the declaration of a claim `claims.yaml` marks `internal`
+  or `reusable` (#455): a package whose comparator compares hundreds of
+  supporting lemmas no longer needs a row for each, or fails on them. A
+  theorem that is the declaration of no claim still fails, and one that is
+  the declaration of an `experimental` or `superseded` claim now fails with
+  that claim and its status named. The offline form reads those claims'
+  Lean files too; `receipt check`'s coverage line says so. Smoke checks are
+  unchanged.
+
 ### Fixed
 
 - `comparator config --challenge-from-type` (the type driver) prints a deep

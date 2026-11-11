@@ -10,7 +10,7 @@ receipt check: FAIL beta at <X12> (3 check(s) failed; tier none)
   FAIL comparator .lean-receipts/<X12>-comparator.json: comparator commit <X12>… != repo HEAD <REF12>… — the comparator receipt must bind to HEAD or an evidence-only descendant (HEAD <REF12> differs from <X12> outside .lean-receipts/: ['README.md']; every changed path is a non-build file, so the package can opt in: commit lean-pkg-binding.yaml (schema: lean-pkg-binding/1, docs_descendants: true) in the package directory before the next verify run (docs/receipts.md#docs-only-descendants-opt-in), or `lean-pkg update beta --accept-docs-descendants --reason TEXT`)
   SKIP comparator .lean-receipts/<X12>-comparator.json: olean manifest: the receipt records no olean_manifest
   PASS claimed theorems: every reusable theorem/lemma claim of claims.yaml at <X12> is named by a comparator configuration (1 covered)
-  PASS coverage: coverage.yaml: 2 row(s); every compared theorem is the declaration of a claim a row names (R11)
+  PASS coverage: coverage.yaml: 2 row(s); every compared theorem is the declaration of a claim a row names or of an internal or reusable claim (R11)
   PASS page: commit: the page's Reproduce section checks out <X12>
   PASS page: pins: toolchain leanprover/lean4:v4.32.0 and Mathlib <SHA> as committed at <X12>
   PASS page: evidence: 2 Evidence row(s): every path, commit and SHA-256 as committed
