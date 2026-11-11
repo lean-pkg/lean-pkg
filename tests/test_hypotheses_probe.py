@@ -306,8 +306,9 @@ def test_a_failing_probe_gives_hyp_error_and_never_fails_the_job(lp, repo, tmp_p
 def test_verify_sh_runs_the_probe_after_claim_axioms():
     from lean_pkg import scaffold
     text = scaffold.VERIFY.format(name="x", module="X", mathlib_line="", claim_axioms_sh=ca.job_sh(),
-                                  hypotheses_sh=hyp.job_sh())
-    assert text.index("claim_axioms_run \"$LOG\"") < text.index("hypotheses_run \"$LOG\"") < text.index("sorry=$(")
+                                  hypotheses_sh=hyp.job_sh(), controls_sh="")
+    assert (text.index("claim_axioms_run \"$LOG\"") < text.index("hypotheses_run \"$LOG\"")
+            < text.index("controls_run \"$LOG\"") < text.index("sorry=$("))   # proposal 0014: controls after
     assert '"$(dirname "$LOG")/hyp-challenge-build.log"' in text
 
 
