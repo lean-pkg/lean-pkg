@@ -1,8 +1,9 @@
 # 0015: Extension keys in coverage.yaml (`x-` keys that lean-pkg ignores)
 
-Status: draft. Author: drafted by the AI operations agent at Le Chen's request, from a field report.
-Created: 2026-11-11.
-Decided: (date and maintainer, once accepted or declined). Implemented in: (release).
+Status: accepted. Author: drafted by the AI operations agent at Le Chen's request, from a field report.
+Created: 2026-11-11. Revised: 2026-11-11, after one field review.
+Decided: 2026-11-11, accepted by Le Chen (maintainer of record), as written, after one field review.
+Implemented in: (release).
 
 ## Summary
 
