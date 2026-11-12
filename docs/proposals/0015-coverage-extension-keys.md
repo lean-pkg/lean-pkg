@@ -67,15 +67,32 @@ bound.
 ### What lean-pkg does with them
 
 - **`coverage check`** (both forms, and verify's preflight, which runs the same check) applies the shape rules
-  above and nothing else. There are no placeholder, length-of-line or README-marker checks, because the text is
-  never shown.
+  above and nothing else. An extension value is outside every judged check:
+  - the placeholder rule (`FILL-ME`, `TODO` and the rest, a warning under verify's preflight);
+  - the one-line and length limits of `summary`, `note` and `conclusion_scope`;
+  - the `paper.statement` rules (code fences, the README block's markers);
+  - every rule that reads claims, receipts or the page.
+
+  The text is never shown, so none of these applies.
 - **The page** (`page`, `page --check`, the README block, `site render`), the claims ledger, `receipt check`,
   `status` and the catalog never read an extension key. A test pins that an extension value does not appear on
   the generated page.
 - **`--json`**: where `coverage check --json` returns the parsed document (the offline form's `doc`), the keys are
   there unchanged. One additive key, `extension_keys`, lists the extension keys found, as `"<root>.x-..."` and
   `"rows[N].x-..."`, sorted, empty when there are none.
-- **The text output** says nothing about them when the file is valid.
+- **The text output** of `coverage check` adds one line after the verdict when the file has extension keys. The
+  line names each distinct key with the number of objects that carry it, for example
+  `extension keys (not checked, never shown): x-appendix-scope-tex on 7 row(s); x-appendix-scope-text on 1
+  row(s)`. A misspelled extension key, which no check can catch, then shows up as a second name beside the
+  intended one. A file without extension keys prints exactly what it prints today.
+- **Commands that write `coverage.yaml`** keep every extension key and its value:
+  - `formalization anchor --write` edits only the manuscript lines, so every other line, extension keys and
+    comments included, stays byte for byte;
+  - `claims rebase --out-dir` writes its proposed `coverage.yaml` from the parsed document, so each extension
+    key keeps its value and its object, though its layout may change as for every other key;
+  - `new` writes none.
+
+  A test pins both writers.
 
 ### Documentation
 
@@ -126,7 +143,9 @@ The tests that pin this:
 - an extension value never appears on the page;
 - a non-`x-` unknown key is still refused;
 - an `x-` key in a nested object is refused;
-- the bounds are enforced.
+- the bounds are enforced;
+- an extension value with placeholder text or an over-long line fails no check;
+- `formalization anchor --write` and `claims rebase --out-dir` keep extension keys and their values.
 
 ## Alternatives
 
@@ -147,11 +166,25 @@ The tests that pin this:
 
 ## Open questions
 
-1. Is top level plus rows the right scope, or should `rows[].paper` (where `statement` lives) take extension keys
-   too?
-2. Should the extension mechanism be the `x-` prefix (recommended) or one reserved `x:` mapping per object?
-3. Are the bounds right: 16 keys per object, 4000 bytes per value, two levels of nesting?
-4. Should claims/1 get the same rule later, for the same reason? It is outside this proposal.
+The field reviewer, the author of the reporting package (59 rows; its sidecar carries TeX scope sentences for 7
+rows, the longest 390 bytes), answered the draft's four questions:
+
+1. **Scope.** Top level plus rows is enough. Per-result rendering text belongs to the row, so `rows[].paper`
+   needs none. Settled as designed.
+2. **Prefix or mapping.** The flat `x-` prefix: it is greppable, it follows the usual vendor-key convention,
+   and `x-appendix-scope-tex` reads naturally next to `conclusion_scope`. Settled as designed.
+3. **Bounds.** 4000 bytes per value, 16 keys per object and two levels of nesting fit comfortably. Settled as
+   designed.
+4. **claims/1.** Useful later (a book label, a display name), not needed now, and the same rules would do. Left
+   for a later proposal.
+
+The review also asked for three additions, all folded into the design above:
+
+- commands that rewrite `coverage.yaml` keep extension keys;
+- `coverage check` names the extension keys it did not check, so a misspelled one is visible;
+- extension values are outside every judged check.
+
+Nothing is open.
 
 ## AI assistance
 
