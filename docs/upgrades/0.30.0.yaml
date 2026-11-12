@@ -93,6 +93,23 @@ changes:
       matching the old R11 pass or error text should match the new wording.
     breaking: false
     changelog: Changed
+  - pr: 457
+    id: coverage-extension-keys
+    kind: format
+    area: coverage.yaml
+    summary: >-
+      coverage/1 accepts x- extension keys (proposal 0015) at the top level and on rows: name
+      x-[a-z0-9][a-z0-9_-]* of at most 64 characters; a scalar, or a list or mapping of scalars nested at most two
+      levels, at most 4000 bytes as JSON; at most 16 per object. lean-pkg never reads, judges or shows their
+      values. coverage check prints one line after the verdict naming each with where it appears, and --json
+      gains extension_keys; formalization anchor --write and claims rebase keep them. Elsewhere an x- key is
+      refused, and so is every other unknown key.
+    action: >-
+      Nothing required. A tool that kept per-row data in a sidecar file can move it onto the row as an x- key
+      (prefix the tool's name). A package that does so needs this release in its CI pin: an older lean-pkg
+      refuses the file with unknown key(s) x-....
+    breaking: false
+    changelog: Added
 # Docs: proposal 0014 (declared controls in the sealed verify log) added, accepted; nothing implemented
 # (#451). Proposal 0015 (extension keys in coverage.yaml) added, accepted; nothing implemented (#456).
 no_author_change: [451, 456]

@@ -433,6 +433,38 @@ and `outside-agreed-scope` to `outside`. A row that is not yet verified keeps it
 the class, decides the word *verified*. The per-theorem prose notes stay
 hand-written, outside the markers.
 
+### Extension keys
+
+A tool that builds something else from `coverage.yaml`, such as a book appendix or a site of its own, can keep its
+data on the row it belongs to in a key whose name starts with `x-`
+([proposal 0015](proposals/0015-coverage-extension-keys.md)):
+
+```yaml
+    conclusion_scope: the bound holds for t <= 1 only
+    x-appendix-scope-tex: 'the bound holds for $t \le 1$ only'
+```
+
+**lean-pkg checks nothing inside an extension key and never shows it**, on the page, the README block or a
+site. A reader must not take its content as checked. These are the rules:
+
+- **Where:** at the top level and on rows (paper or library) only. An `x-` key anywhere else (`manuscript`,
+  `rows[].paper`, `inputs`, `compute` and the rest) is refused.
+- **Name:** `x-` and then lowercase letters, digits, `_` or `-`, starting with a letter or digit, at most 64
+  characters. Prefix the tool's name (`x-<tool>-<field>`) so that two tools do not collide. No lean-pkg key ever
+  starts with `x-`.
+- **Value:** a string (several lines allowed), a number, a boolean or null, or a list or a mapping (string keys)
+  of these, nested at most two levels. The compact JSON of the value is at most 4000 bytes. There are at most 16
+  extension keys on one object.
+- **Judged checks:** none applies to an extension value. Placeholder text and long or multi-line values are
+  fine there. Every other unknown key is still refused, so a misspelled real key is still caught.
+- **Output:** `coverage check` prints one line after its verdict that names each distinct extension key and
+  where it appears (`x-appendix-scope-tex on 7 row(s)`), so a misspelled extension key shows up beside the
+  intended one. `--json` lists them in `extension_keys` (`<root>.x-...`, `rows[N].x-...`).
+- **Writers:** `formalization anchor --write` edits only the manuscript lines, so extension keys stay byte for
+  byte. `claims rebase --out-dir` keeps every key and its value, though the layout may change.
+
+An older lean-pkg refuses a file with an extension key (`unknown key(s) x-...`). Pin a release that knows them.
+
 ### A library with no manuscript
 
 A reusable library that has no paper of its own (an adopted standalone
