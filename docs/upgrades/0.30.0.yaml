@@ -94,5 +94,5 @@ changes:
     breaking: false
     changelog: Changed
 # Docs: proposal 0014 (declared controls in the sealed verify log) added, accepted; nothing implemented
-# (#451).
-no_author_change: [451]
+# (#451). Proposal 0015 (extension keys in coverage.yaml) added, accepted; nothing implemented (#456).
+no_author_change: [451, 456]
