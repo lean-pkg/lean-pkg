@@ -32,7 +32,10 @@ A format version names a set of keys and what each one means.
   [The registry file](cli.md#the-registry-file)): an older lean-pkg ignores it and keeps it
   on every save. `claims/1` and `coverage/1` are strict, so an older lean-pkg
   refuses a file that uses a key added after it: a package that uses one
-  needs a release that knows it in its CI pin. `index-entry/2` gained two
+  needs a release that knows it in its CI pin. `coverage/1` also accepts
+  `x-` extension keys at the top level and on rows, which lean-pkg
+  shape-checks and otherwise ignores ([Extension keys](page.md#extension-keys),
+  proposal 0015). `index-entry/2` gained two
   optional derived keys of a claim the same way, `status` (only
   `conditional`) and `open_hypotheses`, written by `index add` only for a
   headline whose claim is conditional and recomputed by `index check`

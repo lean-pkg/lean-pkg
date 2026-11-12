@@ -11,6 +11,19 @@ full policy, and the criteria for 1.0.0, are in RELEASING.md, "When to tag".
 
 ### Added
 
+- Extension keys in `coverage.yaml`, proposal 0015 (#457): `coverage/1`
+  accepts keys named `x-...` at the top level and on rows (paper and
+  library). They are for tools that build something else from the file,
+  such as a book appendix. lean-pkg checks their shape: the name, a value
+  that is a scalar or a list or mapping of scalars nested at most two
+  levels, at most 4000 bytes as JSON, and at most 16 on one object. It
+  never reads, judges or shows them: no placeholder or length rule applies,
+  and the page never prints them. `coverage check` names each one after its
+  verdict, with where it appears, so a misspelled one is visible, and
+  `--json` gains `extension_keys`. `formalization anchor --write` and
+  `claims rebase` keep them. An `x-` key anywhere else, and every other
+  unknown key, is still refused. An older lean-pkg refuses a file that uses
+  one.
 - Declared controls, first stage of proposal 0014 (#453): a package may commit
   `lean-pkg-controls.yaml` (`controls/1`) listing `must-fail`, `refutes` and
   `compiles` controls. The verify scripts (`receipt slurm --template` and the

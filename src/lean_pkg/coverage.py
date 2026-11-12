@@ -125,6 +125,14 @@ SLURM_JOB_RE = sites.SLURM.job_re
 VERSION_RE = re.compile(r"^\d+\.\d+\.\d+$")
 ZENODO_DOI_RE = re.compile(r"^10\.5281/zenodo\.\d+$")
 TEXT_MAX = 400
+# proposal 0015: extension keys, at the top level and on rows only; lean-pkg checks their shape and never reads,
+# shows or judges their values (no lean-pkg key ever starts with x-)
+EXT_PREFIX = "x-"
+EXT_NAME_RE = re.compile(r"^x-[a-z0-9][a-z0-9_-]*$")
+EXT_NAME_MAX = 64
+EXT_VALUE_MAX = 4000                            # bytes of the value's compact JSON (UTF-8)
+EXT_KEYS_MAX = 16                               # extension keys on one object
+EXT_DEPTH_MAX = 2                               # a list of lists, a mapping of lists: no deeper
 STATEMENT_MAX = 2000                            # paper.statement / a library row's statement: TeX, may span lines
 # lean-scope-page R4: a placeholder never reaches a public page (FILL-ME is the lab template's marker)
 PLACEHOLDER_RE = re.compile(r"(?<![A-Za-z0-9])(?:FILL-ME|TODO|TBD|FIXME|XXX)(?![A-Za-z0-9])")
@@ -169,18 +177,112 @@ def _text(v, limit: int = TEXT_MAX) -> bool:
     return isinstance(v, str) and bool(v.strip()) and "\n" not in v.strip() and len(v) <= limit
 
 
-def _keys(obj, required, optional, where: str, errors: list[str]) -> bool:
+def _is_ext(k) -> bool:
+    return isinstance(k, str) and k.startswith(EXT_PREFIX)
+
+
+def _keys(obj, required, optional, where: str, errors: list[str], extensions: bool = False) -> bool:
+    """The exact key set of a mapping. extensions (proposal 0015: the top level and rows): x- keys are allowed
+    and shape-checked (_extension_errors); elsewhere an x- key is refused with where they are allowed."""
     if not isinstance(obj, dict):
         errors.append(f"{where}: must be a mapping")
         return False
-    unknown = [str(k) for k in obj if k not in required and k not in optional]
+    ext = [str(k) for k in obj if _is_ext(k)]
+    unknown = [str(k) for k in obj if k not in required and k not in optional and not _is_ext(k)]
     missing = [k for k in required if k not in obj]
     if unknown:
         errors.append(f"{where}: unknown key(s) {', '.join(sorted(unknown))} "
                       f"(allowed: {', '.join(tuple(required) + tuple(optional))})")
     if missing:
         errors.append(f"{where}: missing key(s) {', '.join(missing)}")
-    return not unknown and not missing
+    if ext and extensions:
+        _extension_errors(obj, ext, where, errors)
+    elif ext:
+        errors.append(f"{where}: extension keys (x-...) are allowed only at the top level and on rows: "
+                      f"{', '.join(sorted(ext))}")
+    return not unknown and not missing and (extensions or not ext)
+
+
+def _ext_depth(v) -> int | None:
+    """How deeply an extension value nests (a scalar 0, a list or mapping of scalars 1); None when it holds
+    something other than a string, number, boolean, null, list or string-keyed mapping."""
+    if v is None or isinstance(v, (str, bool, int, float)):
+        return 0
+    if isinstance(v, (list, dict)):
+        if isinstance(v, dict) and not all(isinstance(k, str) for k in v):
+            return None
+        kids = [_ext_depth(x) for x in (v.values() if isinstance(v, dict) else v)]
+        return None if None in kids else 1 + max(kids, default=0)
+    return None
+
+
+def _extension_errors(obj: dict, names: list[str], where: str, errors: list[str]) -> None:
+    """Proposal 0015: the shape of the extension keys of one object; their values are never read otherwise."""
+    if len(names) > EXT_KEYS_MAX:
+        errors.append(f"{where}: {len(names)} extension keys (x-...); at most {EXT_KEYS_MAX} on one object")
+    for k in sorted(names):
+        w = f"{where}.{k}"
+        if len(k) > EXT_NAME_MAX or not EXT_NAME_RE.fullmatch(k):
+            errors.append(f"{w}: an extension key is x- followed by lowercase letters, digits, _ or - (starting "
+                          f"with a letter or digit), at most {EXT_NAME_MAX} characters")
+            continue
+        depth = _ext_depth(obj[k])
+        if depth is None:
+            errors.append(f"{w}: must be a string, number, boolean or null, or a list or mapping (string keys) "
+                          f"of these")
+        elif depth > EXT_DEPTH_MAX:
+            errors.append(f"{w}: nested {depth} levels; at most {EXT_DEPTH_MAX}")
+        else:
+            size = len(json.dumps(obj[k], ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+                       .encode("utf-8"))
+            if size > EXT_VALUE_MAX:
+                errors.append(f"{w}: {size} bytes as JSON; at most {EXT_VALUE_MAX}")
+
+
+def _ext_objects(doc):
+    """(label, mapping) for the objects that may carry extension keys: the top level, then each row."""
+    if not isinstance(doc, dict):
+        return
+    yield "<root>", doc
+    rows = doc.get("rows")
+    for i, r in enumerate(rows if isinstance(rows, list) else []):
+        if isinstance(r, dict):
+            yield f"rows[{i}]", r
+
+
+def extension_keys(doc) -> list[str]:
+    """Proposal 0015: every extension key of the document, as '<root>.x-...' and 'rows[N].x-...', in document
+    order (the top level first, then the rows in order, each object's keys sorted)."""
+    return [f"{label}.{k}" for label, obj in _ext_objects(doc) for k in sorted(str(x) for x in obj if _is_ext(x))]
+
+
+def strip_extensions(doc):
+    """The document without the extension keys of the top level and the rows: what every judged check reads."""
+    if not isinstance(doc, dict):
+        return doc
+    out = {k: v for k, v in doc.items() if not _is_ext(k)}
+    if isinstance(out.get("rows"), list):
+        out["rows"] = [{k: v for k, v in r.items() if not _is_ext(k)} if isinstance(r, dict) else r
+                       for r in out["rows"]]
+    return out
+
+
+def extension_line(doc) -> str | None:
+    """The text line `coverage check` prints after its verdict when the document has extension keys: each
+    distinct key with where it appears, so a misspelled one shows up beside the intended one; None without."""
+    where: dict[str, list[int]] = {}
+    for label, obj in _ext_objects(doc):
+        for k in obj:
+            if _is_ext(k):
+                where.setdefault(str(k), [0, 0])[0 if label == "<root>" else 1] += 1
+    if not where:
+        return None
+    parts = []
+    for k in sorted(where):
+        top, rows = where[k]
+        at = [x for x in ("at the top level" if top else "", f"on {rows} row(s)" if rows else "") if x]
+        parts.append(f"{k} {' and '.join(at)}")
+    return "  extension keys (not checked, never shown): " + "; ".join(parts)
 
 
 def _str_list(v, where: str, errors: list[str]) -> list[str]:
@@ -381,7 +483,7 @@ def validate(doc, package: str | None = None, profiles: dict | None = None, plac
     if library:
         _library_keys(doc, errors)
     else:
-        _keys(doc, TOP_REQUIRED, TOP_OPTIONAL, "<root>", errors)
+        _keys(doc, TOP_REQUIRED, TOP_OPTIONAL, "<root>", errors, extensions=True)
     _identity_errors(doc, package, errors)
     if not library and "manuscript" in doc:
         _manuscript_errors(doc["manuscript"], errors)
@@ -405,10 +507,11 @@ def _identity_errors(doc: dict, package: str | None, errors: list[str]) -> None:
 
 
 def placeholder_problems(doc) -> list[str]:
-    """lean-scope-page R4: each string of the document that carries a placeholder marker."""
+    """lean-scope-page R4: each string of the document that carries a placeholder marker (extension values
+    excepted: they never reach the page, proposal 0015)."""
     return [f"{where or '<root>'}: carries the placeholder {PLACEHOLDER_RE.search(s).group(0)!r}; "
             f"write the text (a placeholder never reaches the page)"
-            for where, s in _strings(doc, "") if PLACEHOLDER_RE.search(s)]
+            for where, s in _strings(strip_extensions(doc), "") if PLACEHOLDER_RE.search(s)]
 
 
 def _tail_errors(doc: dict, errors: list[str], profiles: dict, placeholders: bool = True) -> None:
@@ -462,7 +565,7 @@ def _paper_rows_errors(doc: dict, errors: list[str]) -> None:
         rows = []
     for i, r in enumerate(rows or []):
         w = f"rows[{i}]"
-        if not _keys(r, ROW_REQUIRED, ROW_OPTIONAL, w, errors):
+        if not _keys(r, ROW_REQUIRED, ROW_OPTIONAL, w, errors, extensions=True):
             continue
         p = r["paper"]
         if _keys(p, PAPER_REQUIRED, PAPER_OPTIONAL, f"{w}.paper", errors):
@@ -597,7 +700,7 @@ def _library_keys(doc: dict, errors: list[str]) -> None:
         if key in doc:
             errors.append(why)
     _keys({k: v for k, v in doc.items() if k not in LIBRARY_NO_PAPER}, LIBRARY_TOP_REQUIRED,
-          LIBRARY_TOP_OPTIONAL, "<root>", errors)
+          LIBRARY_TOP_OPTIONAL, "<root>", errors, extensions=True)
 
 
 def _library_rows_errors(doc: dict, errors: list[str]) -> None:
@@ -614,7 +717,7 @@ def _library_rows_errors(doc: dict, errors: list[str]) -> None:
                           f"paper result: drop {', '.join(k for k in LIBRARY_ROW_NO_PAPER if k in r)} (the Lean "
                           f"statement is the result; a library coverage has no manuscript to correspond to)")
             r = {k: v for k, v in r.items() if k not in LIBRARY_ROW_NO_PAPER}
-        if not _keys(r, LIBRARY_ROW_REQUIRED, LIBRARY_ROW_OPTIONAL, w, errors):
+        if not _keys(r, LIBRARY_ROW_REQUIRED, LIBRARY_ROW_OPTIONAL, w, errors, extensions=True):
             continue
         if not _text(r["title"], 200):
             errors.append(f"{w}.title: must be a one-line string")
@@ -1188,7 +1291,7 @@ def offline_payload(rep: dict, name, file: str, claims_file, comparator: list[st
             "witnesses": witness_counts(doc) if doc else None, "manuscript": mkind,
             "private_manuscript": (mkind == "unposted") if doc else None, "errors": rep["errors"],
             "warnings": rep["warnings"], "offline": True, "claims_file": claims_file, "comparator": comparator,
-            "checks": rep["checks"], "skipped": rep["skipped"]}
+            "checks": rep["checks"], "skipped": rep["skipped"], "extension_keys": extension_keys(doc)}
 
 
 def offline_lines(rep: dict, payload: dict, where: str) -> list[str]:
@@ -1202,7 +1305,9 @@ def offline_lines(rep: dict, payload: dict, where: str) -> list[str]:
                 f"{len(doc['rows'])} row(s): " + ", ".join(f"{n} {c}" for c, n in payload["counts"].items())
                 + f"; manuscript {payload['manuscript']}")
         verdict = f"{where}: coverage: OK; {what}; offline, {n_skip} check(s) skipped"
-    lines = [verdict] + [f"  {e}" for e in rep["errors"]] + [f"  warning: {w}" for w in rep["warnings"]]
+    ext = extension_line(rep["doc"])
+    lines = [verdict] + ([ext] if ext else []) + [f"  {e}" for e in rep["errors"]]
+    lines += [f"  warning: {w}" for w in rep["warnings"]]
     lines += [f"  {c['status']}: {c['check']}: {c['detail']}" for c in rep["checks"]]
     if n_skip:
         lines.append("  the skipped checks need the registry record, the checkout at HEAD or a receipt: "
@@ -1221,7 +1326,7 @@ def do_coverage_check_file(file: str, claims_path: str | None, comparator_paths:
                    "conclusions": None, "witnesses": None, "manuscript": None, "private_manuscript": None,
                    "errors": [f"{p}: no such file"],
                    "warnings": [], "offline": True, "claims_file": claims_path, "comparator": comparator_paths or [],
-                   "checks": [], "skipped": []}
+                   "checks": [], "skipped": [], "extension_keys": []}
         verdict = f"{p}: coverage: INVALID (1 problem(s); offline)"
         return [verdict, f"  {p}: no such file", verdict], payload, 1
     root = p.resolve().parent
@@ -1345,7 +1450,7 @@ def do_coverage_check(reg: dict, name: str, file: str | None, allow_private: boo
         problems = [x.strip() for x in lines[1:]] or [lines[0]]
         payload = {"ok": False, "name": name, "file": file or DEFAULT_COVERAGE_FILE, "kind": None, "rows": None,
                    "counts": None, "conclusions": None, "witnesses": None, "manuscript": None,
-                   "private_manuscript": None, "errors": problems, "warnings": []}
+                   "private_manuscript": None, "errors": problems, "warnings": [], "extension_keys": []}
         return [f"{name}: coverage: INVALID ({len(problems)} problem(s))", f"  {lines[0]}"] + \
             [f"  {x}" for x in problems if x != lines[0]], payload, 1
     rel = (pkg.get("gate") or {}).get("receipt")
@@ -1356,19 +1461,24 @@ def do_coverage_check(reg: dict, name: str, file: str | None, allow_private: boo
                    "rows": len(doc["rows"]), "counts": None, "conclusions": None,
                    "witnesses": _registered_witness_counts(pkg, doc, claims), "manuscript": None,
                    "private_manuscript": False,
-                   "errors": [], "warnings": warnings}
+                   "errors": [], "warnings": warnings, "extension_keys": extension_keys(doc)}
         line = f"{name}: coverage: OK; library; {len(doc['rows'])} main result(s); no manuscript"
-        return [line] + [f"  warning: {w}" for w in warnings], payload, 0
+        return [line] + _ext_lines(doc) + [f"  warning: {w}" for w in warnings], payload, 0
     counts = {c: sum(r["class"] == c for r in doc["rows"]) for c in CLASSES}
     kind = manuscript_kind(doc["manuscript"]["version"])
     payload = {"ok": True, "name": name, "file": file or DEFAULT_COVERAGE_FILE, "kind": "paper",
                "rows": len(doc["rows"]), "counts": counts, "conclusions": conclusion_counts(doc),
                "witnesses": _registered_witness_counts(pkg, doc, claims), "manuscript": kind,
                "private_manuscript": kind == "unposted",
-               "errors": [], "warnings": warnings}
+               "errors": [], "warnings": warnings, "extension_keys": extension_keys(doc)}
     line = (f"{name}: coverage: OK; {len(doc['rows'])} row(s): " + ", ".join(f"{n} {c}" for c, n in counts.items())
             + f"; manuscript {kind}" + (" (PRIVATE DRAFT, --allow-private-manuscript)" if kind == "unposted" else ""))
-    return [line] + [f"  warning: {w}" for w in warnings], payload, 0
+    return [line] + _ext_lines(doc) + [f"  warning: {w}" for w in warnings], payload, 0
+
+
+def _ext_lines(doc) -> list[str]:
+    ext = extension_line(doc)
+    return [ext] if ext else []
 
 
 def run_check(args) -> int:
