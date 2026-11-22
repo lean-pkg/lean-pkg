@@ -9,6 +9,14 @@ full policy, and the criteria for 1.0.0, are in RELEASING.md, "When to tag".
 
 ## [Unreleased]
 
+### Documentation
+
+- docs/stacks/lts-2026.10: the release-gate run of RELEASING.md step 3a
+  for 0.30.0 (#458): the five declared entries on one host, with timings,
+  peak memory, receipt SHA-256s and the digest check. No failing entry;
+  the failures recorded are pre-existing package data (binding opt-in,
+  REUSE data, an unbacked Easley acknowledgement).
+
 ## [0.30.0] - 2026-11-21
 
 ### Added
