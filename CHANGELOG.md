@@ -9,6 +9,8 @@ full policy, and the criteria for 1.0.0, are in RELEASING.md, "When to tag".
 
 ## [Unreleased]
 
+## [0.30.0] - 2026-11-21
+
 ### Added
 
 - Extension keys in `coverage.yaml`, proposal 0015 (#457): `coverage/1`
@@ -76,6 +78,8 @@ full policy, and the criteria for 1.0.0, are in RELEASING.md, "When to tag".
   statement nested deeper than 50 printed with an elided `⋯`, which the
   round-trip check refused; the driver now sets `pp.deepTerms true` and a
   large `pp.maxSteps`.
+
+public-safety (make public-safety, --strict, history): 0 hit(s) (0 tree, 0 history); 0 blocking, 0 warning(s)
 
 ## [0.29.0] - 2026-11-09
 
