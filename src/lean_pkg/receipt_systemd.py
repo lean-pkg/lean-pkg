@@ -242,7 +242,7 @@ def check_unit(props: dict, unit: str) -> tuple[dict | None, list[str], list[str
                         f"ExecMainExitTimestampMonotonic={props['ExecMainExitTimestampMonotonic']})")
     result = props["Result"]
     if result != "success":
-        why = {"oom-kill": f"the OOM killer stopped it (MemoryMax={props.get('MemoryMax', 'unknown')})",
+        why = {"oom-kill": oom_kill_why(props),
                "timeout": f"the runtime cap stopped it (RuntimeMaxUSec={props.get('RuntimeMaxUSec', 'unknown')})",
                "signal": "it was killed by a signal", "core-dump": "it dumped core",
                "exit-code": "its main process exited non-zero"}.get(result, "not a clean finish")
@@ -278,11 +278,25 @@ def check_unit(props: dict, unit: str) -> tuple[dict | None, list[str], list[str
 MEMORY_WARN_FRACTION = 0.8   # a field report: a 32-module package peaked at 7.3 GiB under the 8G default
 
 
+def oom_kill_why(props: dict) -> str:
+    """Why a Result=oom-kill unit is refused: its memory peak and its MemoryMax, and how to raise the cap
+    (a field report: the refusal named only MemoryMax in bytes, and the --memory-max hint was in a separate
+    WARN). The suggested cap is 1.5 times the larger of the two, rounded up to whole GiB."""
+    peak, cap = _int(props.get("MemoryPeak")), _int(props.get("MemoryMax"))
+    hint = "raise the cap with `lean-pkg verify NAME --memory-max SIZE` (or `receipt systemd --run --memory-max SIZE`)"
+    if basis := max(peak or 0, cap or 0):
+        hint += f", e.g. --memory-max {-(-basis * 3 // (2 << 30))}G"
+    return (f"the OOM killer stopped it (memory peak {_bytes(props.get('MemoryPeak'))}, "
+            f"MemoryMax {_bytes(props.get('MemoryMax'))}); {hint}")
+
+
 def memory_warning(s: dict) -> str | None:
     """A warning, never a refusal, when the unit's MemoryPeak exceeded MEMORY_WARN_FRACTION of its MemoryMax:
     a slightly larger build under the same cap is OOM-killed (Result=oom-kill, no receipt). It names --memory-max
     and a cap of 1.5 times the peak, rounded up to whole GiB. None when either value is unknown or the cap is
-    infinity."""
+    infinity, and for a unit already OOM-killed, whose refusal (oom_kill_why) names the peak, the cap and the fix."""
+    if s.get("result") == "oom-kill":
+        return None
     peak, cap = _int(s.get("memory_peak")), _int(s.get("memory_max"))
     if not peak or not cap or peak <= MEMORY_WARN_FRACTION * cap:
         return None

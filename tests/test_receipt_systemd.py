@@ -202,7 +202,7 @@ def test_no_systemctl_names_the_properties_file_route(lp, repo, tmp_path, monkey
     ({"ActiveState": "inactive", "SubState": "dead", "ExecMainCode": "0", "ExecMainExitTimestampMonotonic": "0"},
      "its main process never exited"),
     ({"ActiveState": "failed", "SubState": "failed", "Result": "oom-kill", "ExecMainCode": "2",
-      "ExecMainStatus": "9"}, "Result=oom-kill: the OOM killer stopped it (MemoryMax=8589934592)"),
+      "ExecMainStatus": "9"}, "Result=oom-kill: the OOM killer stopped it (memory peak 1.5 GiB, MemoryMax 8.0 GiB)"),
     ({"ActiveState": "failed", "SubState": "failed", "Result": "exit-code", "ExecMainStatus": "3"},
      "main process exited 3; a receipt needs exit 0"),
     ({"ActiveState": "failed", "SubState": "failed", "Result": "signal", "ExecMainCode": "2", "ExecMainStatus": "9"},
@@ -222,6 +222,26 @@ def test_unclean_unit_is_refused(lp, repo, tmp_path, capsys, over, needle):
     err = capsys.readouterr().err
     assert needle in err, err
     assert "nothing written" in err.splitlines()[0]
+    assert_nothing_written(repo)
+
+
+@pytest.mark.parametrize("peak, cap, shown, suggest", [
+    (str(8 << 30), str(8 << 30), "memory peak 8.0 GiB, MemoryMax 8.0 GiB", "--memory-max 12G"),
+    (str(7 << 30), str(16 << 30), "memory peak 7.0 GiB, MemoryMax 16.0 GiB", "--memory-max 24G"),
+    (None, "infinity", "memory peak unknown, MemoryMax none", None),
+])
+def test_oom_kill_refusal_names_peak_cap_and_memory_max(lp, repo, tmp_path, capsys, peak, cap, shown, suggest):
+    # A field report (lts-2026.10 release-gate run, 2026-11-22): the oom-kill refusal named only MemoryMax in
+    # bytes; the peak and the way to raise the cap were in a separate WARN line that is easy to miss.
+    props = props_text(ActiveState="failed", SubState="failed", Result="oom-kill", ExecMainCode="2",
+                       ExecMainStatus="9", MemoryPeak=peak, MemoryMax=cap)
+    assert run(lp, repo, Unit(tmp_path, props=props)) == 1
+    err = capsys.readouterr().err
+    line = next(x for x in err.splitlines() if "Result=oom-kill:" in x)
+    assert "WARN memory" not in err, err          # the refusal carries it; the WARN would say "a larger build ..."
+    assert f"the OOM killer stopped it ({shown})" in line, line
+    assert "lean-pkg verify NAME --memory-max SIZE" in line and "receipt systemd --run --memory-max SIZE" in line
+    assert (suggest in line) if suggest else ("e.g. --memory-max" not in line), line
     assert_nothing_written(repo)
 
 

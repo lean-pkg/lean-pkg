@@ -4,5 +4,20 @@
 # renames both files to the version it cuts, which make release-version prints.
 schema: lean-pkg-upgrade-record/1
 version: 0.31.0
-changes: []
+changes:
+  - pr: 459
+    id: receipt-systemd-oom-refusal
+    kind: behavior
+    area: receipt systemd, verify
+    summary: >-
+      receipt systemd's refusal of a Result=oom-kill unit names the unit's memory peak and its MemoryMax in
+      GiB (it named only MemoryMax, in bytes) and how to raise the cap: lean-pkg verify NAME --memory-max SIZE
+      or receipt systemd --run --memory-max SIZE, with a suggested size of 1.5 times the larger of the two,
+      rounded up to whole GiB. The memory WARN (peak over 80% of MemoryMax) is no longer printed for an
+      OOM-killed unit, whose refusal carries the same information.
+    action: >-
+      Nothing required. A script matching the old "the OOM killer stopped it (MemoryMax=...)" text should match
+      the new wording.
+    breaking: false
+    changelog: Changed
 no_author_change: [458]

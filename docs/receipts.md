@@ -1567,8 +1567,10 @@ naming `--memory-max` and a cap of 1.5 times the peak rounded up to a whole
 GiB (for a peak of 7.3 GiB under the 8G default: 91%, and
 `--memory-max 11G`; `--json` `memory_warning`, null otherwise), because a slightly larger
 build under the same cap is OOM-killed (`Result=oom-kill`, no receipt). The
-receipt is written as usual. `lean-pkg verify --memory-max BYTES` passes the
-cap to this step. The job's stdout may also carry
+receipt is written as usual. A unit that was OOM-killed is refused instead,
+and that refusal names the peak and the cap and suggests a cap the same way
+(1.5 times the larger of the two), so the warning is not printed for it.
+`lean-pkg verify --memory-max BYTES` passes the cap to this step. The job's stdout may also carry
 `invocation-id $INVOCATION_ID` (systemd sets the variable in the unit);
 when present it must equal the unit's InvocationID, so a stdout from
 another run is refused. A log `job-id:` line must name the job_id or the
