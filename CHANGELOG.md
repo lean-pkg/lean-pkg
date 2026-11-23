@@ -9,6 +9,16 @@ full policy, and the criteria for 1.0.0, are in RELEASING.md, "When to tag".
 
 ## [Unreleased]
 
+### Changed
+
+- `receipt systemd` refuses a `Result=oom-kill` unit naming its memory peak
+  and its `MemoryMax` (in GiB; it named only `MemoryMax`, in bytes) and how
+  to raise the cap, `lean-pkg verify NAME --memory-max SIZE` or `receipt
+  systemd --run --memory-max SIZE`, with a suggested size of 1.5 times the
+  larger of the two (#459). The memory WARN is no longer printed for an
+  OOM-killed unit: it said a larger build "is OOM-killed" about a build
+  that already was.
+
 ### Documentation
 
 - docs/stacks/lts-2026.10: the release-gate run of RELEASING.md step 3a
